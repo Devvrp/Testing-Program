@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Space Shooter Game</title>
+  <style>
+    body { margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+    canvas { flex-grow: 1; background: linear-gradient(to bottom, #001f3f, #001122); display: block; }
+    .info { background: #111; color: white; font-family: Arial, sans-serif; padding: 10px; }
+    .info p { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div class="info">
+    <p><strong>Controls:</strong></p>
+    <p>Move: <b>Arrow Keys</b> | Shoot: <b>Space</b></p>
+    <p>Defeat enemies to gain points. Boss appears every 100 points!</p>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const player = { width: 50, height: 30, x: 0, speed: 5, bullets: [] };
+    const settings = { bulletWidth: 5, bulletHeight: 10, maxBullets: 15, bulletDelay: 1000 / 15, enemyWidth: 40, enemyHeight: 30, score: 0, highScore: localStorage.getItem("highScore") || 0, lives: 3, spawnRate: 1, boss: { active: false, hp: 500, speed: 1 }, difficulty: [10, 25, 40, 75, 100, 125, 140, 175, 200], enemies: [], lastBulletTime: 0 };
+
+    let move = { left: false, right: false };
+
+    window.addEventListener("resize", resizeCanvas);
+    document.addEventListener("keydown", ({ code }) => moveKey(code, true));
+    document.addEventListener("keyup", ({ code }) => moveKey(code, false));
+
+    resizeCanvas();
+    function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight - document.querySelector('.info').offsetHeight; player.x = (canvas.width - player.width) / 2; }
+
+    function moveKey(code, pressed) {
+      if (code === "ArrowLeft") move.left = pressed;
+      if (code === "ArrowRight") move.right = pressed;
+      if (code === "Space" && pressed) shoot();
+    }
+
+    function shoot() {
+      const now = Date.now();
+      if (now - settings.lastBulletTime >= settings.bulletDelay) {
+        player.bullets.push({ x: player.x + player.width / 2 - settings.bulletWidth / 2, y: canvas.height - player.height - 20 });
+        settings.lastBulletTime = now;
+      }
+    }
+
+    function spawnEnemy() {
+      if (!settings.boss.active) {
+        const x = Math.random() * (canvas.width - settings.enemyWidth);
+        const type = settings.score >= 30 ? (Math.random() < 0.5 ? "red" : "yellow") : (settings.score >= 10 ? "yellow" : "green");
+        const hp = type === "red" ? 3 : type === "yellow" ? 2 : 1;
+        settings.enemies.push({ x, y: 0, type, hp });
+      }
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = "#0ff";
+      ctx.beginPath();
+      ctx.moveTo(player.x, canvas.height - player.height - 10);
+      ctx.lineTo(player.x + player.width / 2, canvas.height - 10);
+      ctx.lineTo(player.x + player.width, canvas.height - player.height - 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawBullets() {
+      ctx.fillStyle = "#ff0";
+      player.bullets.forEach((b, i) => {
+        ctx.fillRect(b.x, b.y, settings.bulletWidth, settings.bulletHeight);
+        b.y -= 5;
+        if (b.y + settings.bulletHeight < 0) player.bullets.splice(i, 1);
+      });
+    }
+
+    function drawEnemies() {
+      settings.enemies.forEach((e, i) => {
+        ctx.fillStyle = e.type === "red" ? "#f00" : e.type === "yellow" ? "#ff0" : "#0f0";
+        ctx.fillRect(e.x, e.y, settings.enemyWidth, settings.enemyHeight);
+        e.y += 2 + Math.floor(settings.score / 10);
+        if (e.y > canvas.height) { settings.enemies.splice(i, 1); loseLife(); }
+      });
+    }
+
+    function drawBoss() {
+      if (settings.boss.active) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(canvas.width / 2 - 50, canvas.height / 4, 100, 100);
+      }
+    }
+
+    function movePlayer() {
+      if (move.left) player.x = Math.max(player.x - player.speed, 0);
+      if (move.right) player.x = Math.min(player.x + player.speed, canvas.width - player.width);
+    }
+
+    function detectCollisions() {
+      player.bullets.forEach((b, bi) => {
+        settings.enemies.forEach((e, ei) => {
+          if (b.x < e.x + settings.enemyWidth && b.x + settings.bulletWidth > e.x && b.y < e.y + settings.enemyHeight && b.y + settings.bulletHeight > e.y) {
+            player.bullets.splice(bi, 1); e.hp--;
+            if (e.hp <= 0) { settings.enemies.splice(ei, 1); settings.score++; checkDifficulty(); }
+          }
+        });
+      });
+    }
+
+    function detectBossCollisions() {
+      if (settings.boss.active) player.bullets.forEach((b, i) => {
+        if (b.x > canvas.width / 2 - 50 && b.x < canvas.width / 2 + 50 && b.y > canvas.height / 4 && b.y < canvas.height / 4 + 100) {
+          player.bullets.splice(i, 1); settings.boss.hp--;
+          if (settings.boss.hp <= 0) { settings.boss.active = false; settings.score += 50; settings.maxBullets += 5; alert("Boss defeated!"); }
+        }
+      });
+    }
+
+    function drawHUD() {
+      ctx.font = "16px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(`Score: ${settings.score}`, 8, 20);
+      ctx.fillText(`High Score: ${settings.highScore}`, 8, 40);
+      ctx.fillText(`Lives: ${settings.lives}`, canvas.width - 100, 20);
+    }
+
+    function loseLife() {
+      settings.lives--;
+      if (settings.lives <= 0) endGame();
+    }
+
+    function checkDifficulty() {
+      if (settings.difficulty.includes(settings.score)) settings.spawnRate += 2;
+      if (settings.score > 0 && settings.score % 100 === 0 && !settings.boss.active) {
+        settings.boss.active = true; settings.boss.hp = 500;
+        alert("Boss is late to arrive!");
+      }
+    }
+
+    function endGame() {
+      if (settings.score > settings.highScore) localStorage.setItem("highScore", settings.score);
+      alert(`Game Over! Final Score: ${settings.score}`);
+      document.location.reload();
+    }
+
+    function updateGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      movePlayer();
+      drawPlayer();
+      drawBullets();
+      drawEnemies();
+      drawBoss();
+      detectCollisions();
+      detectBossCollisions();
+      drawHUD();
+    }
+
+    function gameLoop() {
+      updateGame();
+      if (Math.random() < settings.spawnRate / 60) spawnEnemy();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
